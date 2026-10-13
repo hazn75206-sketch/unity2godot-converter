@@ -1,0 +1,27 @@
+name: Repro import (cari file pembunuh)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  repro:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ekstrak project
+        run: |
+          mkdir -p proj && tar -xzf repro/repro-144p.tar.gz -C proj
+          find proj -type f | wc -l
+      - name: Godot 4.3
+        run: |
+          curl -sSL -m 600 https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip -o godot.zip
+          python3 -c "import zipfile; zipfile.ZipFile('godot.zip').extractall('g')"
+          chmod +x g/Godot_v4.3-stable_linux.x86_64
+      - name: Import + catat semua error
+        run: |
+          ./g/Godot_v4.3-stable_linux.x86_64 --headless --import --path proj > import.log 2>&1 || true
+          echo "=== return: $?"
+          grep -ai "error" import.log | head -n 40
+          echo "=== tail ==="
+          tail -n 15 import.log
