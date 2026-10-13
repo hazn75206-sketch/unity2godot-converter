@@ -17,11 +17,12 @@ def run_batch4(src_root, manifest_path, out_root, project_name):
         manifest = json.load(f)
     scripts = scan_scripts(manifest, src_root, os.path.join(out_root, "scripts"))
     conv = {}
-    for fn in ("conversion.json", "scene-conversion.json"):
+    for fn, key in (("conversion.json", "conversion"),
+                    ("scene-conversion.json", "scene")):
         p = os.path.join(out_root, fn)
         if os.path.isfile(p):
             with open(p, encoding="utf-8") as f:
-                conv[fn.split("-")[0]] = json.load(f)
+                conv[key] = json.load(f)
     parts = {"conversion": conv.get("conversion", {}),
              "scene": conv.get("scene", {}), "scripts": scripts}
     build_project(out_root, project_name)
