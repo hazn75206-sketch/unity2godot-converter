@@ -65,6 +65,27 @@ def test_parse_bukan_mesh(tmp_path):
     assert mesh is None and err
 
 
+def test_short_blob_pos_only(tmp_path):
+    import struct as st
+    blob = st.pack("<6f", 1, 2, 3, 4, 5, 6)  # 2 vertex posisi saja
+    yml = TRI_YAML.replace("  m_VertexCount: 3", "  m_VertexCount: 2")
+    yml = yml.replace("  m_DataSize: 36", "  m_DataSize: 232")
+    # deklarasi stride 116 (ada blok packed fiktif) tapi blob cuma 24 byte
+    yml = yml.replace(
+        "  - stream: 0\n    offset: 0\n    format: 0\n    dimension: 3\n",
+        "  - stream: 0\n    offset: 0\n    format: 0\n    dimension: 3\n"
+        "  - stream: 0\n    offset: 12\n    format: 1\n    dimension: 52\n")
+    yml = yml.replace("{verts}", blob.hex())
+    p = tmp_path / "short.asset"
+    p.write_text(yml)
+    mesh, err = parse_mesh(str(p))
+    assert err is None, err
+    assert mesh.get("pos_only") is True
+    assert mesh["pos"][0] == (-1.0, 2.0, 3.0)
+    text, _ = to_obj(mesh, "short")
+    assert "vn " in text  # normal dihitung
+
+
 def test_multistream_uv(tmp_path):
     import struct as st
     # stream0: posisi 3 float (stride 12), stream1: uv 2 float (stride 8)

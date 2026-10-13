@@ -78,7 +78,41 @@ def parse_mesh(path):
     for s in range(nstreams):
         bases[s] = off
         off += streams[s]["stride"] * nv
-    if len(blob) < off:
+    short_blob = len(blob) < off
+    if short_blob:
+        # blob lebih pendek dari tabel channel (artefak rip): coba posisi saja
+        actual = len(blob) // nv if nv else 0
+        if actual >= 12:
+            import math as _m
+            ok = True
+            for v in (0, nv // 2, nv - 1):
+                try:
+                    p = struct.unpack("<3f", blob[v * actual:v * actual + 12])
+                except struct.error:
+                    ok = False
+                    break
+                if any(not _m.isfinite(x) or abs(x) > 1e7 for x in p):
+                    ok = False
+                    break
+            if ok:
+                pos = []
+                for v in range(nv):
+                    p = struct.unpack("<3f", blob[v * actual:v * actual + 12])
+                    pos.append((-p[0], p[1], p[2]))
+                ib = re.search(r"m_IndexBuffer:\s*([0-9a-fA-F]+)", t)
+                idxfmt = re.search(r"m_IndexFormat:\s*(\d+)", t)
+                is32 = bool(idxfmt and int(idxfmt.group(1)) == 1)
+                isz = 4 if is32 else 2
+                iblob = bytes.fromhex(ib.group(1)) if ib else b""
+                idx = [int.from_bytes(iblob[i * isz:(i + 1) * isz], "little")
+                       for i in range(len(iblob) // isz)]
+                subs = re.findall(
+                    r"firstByte:\s*(\d+)\s*indexCount:\s*(\d+)\s*topology:\s*(\d+)\s*baseVertex:\s*(\d+)\s*firstVertex:\s*(\d+)", t)
+                return {
+                    "nv": nv, "pos": pos, "nrm": [None] * nv, "uv": [None] * nv,
+                    "idx": idx, "pos_only": True,
+                    "subs": [(int(a) // isz, int(b), int(c), int(e)) for a, b, c, _, e in subs],
+                }, None
         return None, "ukuran data tak cocok"
     ib = re.search(r"m_IndexBuffer:\s*([0-9a-fA-F]+)", t)
     idxfmt = re.search(r"m_IndexFormat:\s*(\d+)", t)
