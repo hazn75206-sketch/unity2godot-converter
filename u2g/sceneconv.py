@@ -11,6 +11,27 @@ import re
 
 DOC_RE = re.compile(r"--- !u!(\d+)\s*&(\d+)\s*\n")
 
+# Nama komponen Unity dari ClassID resmi (docs.unity3d.com ClassIDReference).
+CLASS_NAMES = {
+    1: "GameObject", 4: "Transform", 20: "Camera", 21: "Material",
+    23: "MeshRenderer", 28: "Texture2D", 33: "MeshFilter", 43: "Mesh",
+    54: "Rigidbody", 64: "MeshCollider", 65: "BoxCollider",
+    81: "AudioListener", 82: "AudioSource", 83: "AudioClip", 90: "Avatar",
+    95: "Animator", 108: "Light", 111: "Animation", 114: "MonoBehaviour",
+    115: "MonoScript", 120: "LineRenderer", 128: "Font",
+    134: "PhysicMaterial", 135: "SphereCollider", 136: "CapsuleCollider",
+    137: "SkinnedMeshRenderer", 143: "CharacterController", 146: "WheelCollider",
+    153: "ConfigurableJoint", 154: "TerrainCollider",
+    195: "NavMeshAgent", 198: "ParticleSystem", 199: "ParticleSystemRenderer",
+    205: "LODGroup", 208: "NavMeshObstacle", 212: "SpriteRenderer",
+    215: "ReflectionProbe", 218: "Terrain", 220: "LightProbeGroup",
+    222: "CanvasRenderer", 223: "Canvas", 224: "RectTransform",
+}
+
+
+def class_name(cid):
+    return CLASS_NAMES.get(cid, "class_%d" % cid)
+
 
 def split_docs(text):
     """Pecah YAML multi-doc Unity -> [(class_id, file_id, body)]."""
@@ -167,6 +188,11 @@ def build_tscn(gos, comps, mesh_guid_to_obj, mat_guid_to_tres, tex_guid_to_path)
             name = "%s@%d" % (name, n + 1)
         mesh_body = _comp_of(go, comps, 33)
         mesh_guid = _guid_ref(mesh_body, "m_Mesh") if mesh_body else None
+        skin_body = _comp_of(go, comps, 137)
+        if not mesh_guid and skin_body:
+            mesh_guid = _guid_ref(skin_body, "m_Mesh")
+            if mesh_guid:
+                warnings.append("SkinnedMesh %s: jadi mesh statis, bones/animasi tak ikut" % name)
         obj_path = mesh_guid_to_obj.get(mesh_guid) if mesh_guid else None
         camb = _comp_of(go, comps, 20)
         lightb = _comp_of(go, comps, 108)
@@ -194,7 +220,7 @@ def build_tscn(gos, comps, mesh_guid_to_obj, mat_guid_to_tres, tex_guid_to_path)
             body_lines.append("visible = false")
         if obj_path:
             body_lines.append('mesh = ExtResource("%s")' % ext_id("ArrayMesh", obj_path))
-            rend = _comp_of(go, comps, 23)
+            rend = _comp_of(go, comps, (23, 137))
             if rend:
                 mguids = _all_guid_refs(rend, "m_Materials")
                 for mi, mg in enumerate(mguids[:4]):
@@ -205,7 +231,7 @@ def build_tscn(gos, comps, mesh_guid_to_obj, mat_guid_to_tres, tex_guid_to_path)
                     else:
                         warnings.append("material guid %s tak ketemu (%s)" % (mg, name))
         else:
-            rend = _comp_of(go, comps, 23)
+            rend = _comp_of(go, comps, (23, 137))
             if rend:
                 mguids = _all_guid_refs(rend, "m_Materials")
                 if mguids:
@@ -223,11 +249,26 @@ def build_tscn(gos, comps, mesh_guid_to_obj, mat_guid_to_tres, tex_guid_to_path)
         if boxb:
             sz = _vec3(boxb, "m_Size") or (1.0, 1.0, 1.0)
             body_lines.append("# BoxCollider size=(%.2f, %.2f, %.2f): tambah CollisionShape manual" % sz)
+        sphb = _comp_of(go, comps, 135)
+        if sphb:
+            r = re.search(r"m_Radius:\s*([-+0-9.eE]+)", sphb)
+            body_lines.append("# SphereCollider r=%s: tambah CollisionShape manual" % (
+                r.group(1) if r else "?"))
+        capb = _comp_of(go, comps, 136)
+        if capb:
+            r = re.search(r"m_Radius:\s*([-+0-9.eE]+)", capb)
+            h = re.search(r"m_Height:\s*([-+0-9.eE]+)", capb)
+            body_lines.append("# CapsuleCollider r=%s h=%s: tambah CollisionShape manual" % (
+                r.group(1) if r else "?", h.group(1) if h else "?"))
+        mcolb = _comp_of(go, comps, 64)
+        if mcolb:
+            body_lines.append("# MeshCollider: buat ConcavePolygonShape3D manual dari mesh")
         # komponen tak didukung
         for cfid in go["components"]:
             c = comps.get(cfid)
-            if c and c["class"] not in (1, 4, 20, 23, 33, 54, 65, 82, 108, 114):
-                stats["unsupported"][c["class"]] = stats["unsupported"].get(c["class"], 0) + 1
+            if c and c["class"] not in (1, 4, 20, 23, 33, 54, 64, 65, 82, 108, 114, 135, 136, 137):
+                stats["unsupported"][class_name(c["class"])] = stats["unsupported"].get(
+                    class_name(c["class"]), 0) + 1
         if _comp_of(go, comps, 54):
             warnings.append("Rigidbody %s: setel fisika manual" % name)
         body_lines.append("")

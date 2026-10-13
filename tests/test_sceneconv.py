@@ -61,6 +61,21 @@ def test_transform_mirror():
     assert tr[9:] == (-1.0, 0.0, 0.0)
 
 
+SKIN_PREFAB = PREFAB.replace("--- !u!33 &300\nMeshFilter:", "--- !u!137 &300\nSkinnedMeshRenderer:").replace(
+    "  m_Mesh: {fileID: 4300000, guid: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa, type: 2}",
+    "  m_Mesh: {fileID: 4300000, guid: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa, type: 2}\n"
+    "  m_Bones: []\n  m_RootBone: {fileID: 0}")
+
+
+def test_skinned_jadi_mesh_statis():
+    gos, comps = parse_prefab(SKIN_PREFAB)
+    text, warnings, stats = build_tscn(
+        gos, comps,
+        {"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": "res://models/kulit.obj"}, {}, {})
+    assert 'type="MeshInstance3D"' in text
+    assert any("SkinnedMesh" in w for w in warnings)
+
+
 def test_ordering_cepat():
     import time
     gos, comps = {}, {}
