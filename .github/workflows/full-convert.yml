@@ -1,0 +1,52 @@
+name: Full convert (validasi end-to-end)
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_url:
+        description: "URL tarball ExportedProject Unity"
+        default: "https://github.com/hazn75206-sketch/recovery-console/releases/download/survival-unity/survival-unknown-battle-royal-5-3-2_antisplit-unity.tar.gz"
+        required: false
+        type: string
+      project_name:
+        description: "Nama project Godot hasil"
+        default: "Survival Godot"
+        required: false
+        type: string
+
+jobs:
+  convert:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Ambil ExportedProject
+        run: |
+          curl -sSL -m 1800 "${{ inputs.source_url }}" -o src.tar.gz
+          mkdir -p src && tar -xzf src.tar.gz -C src
+          ls src | head
+      - name: Batch 2-4 (scan + convert semua)
+        run: |
+          SRC=$(find src -maxdepth 3 -name Assets -type d | head -n 1 | xargs dirname)
+          echo "SRC=$SRC"
+          python3 -m u2g.scanner "$SRC" manifest.json
+          python3 -m u2g.batch2 "$SRC" manifest.json out
+          python3 -m u2g.batch3 "$SRC" manifest.json out
+          python3 -m u2g.batch4 "$SRC" manifest.json out "${{ inputs.project_name }}"
+          cat out/migration/report.json | head -n 20
+      - name: Godot 4.3 + validasi import
+        run: |
+          curl -sSL -m 600 https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip -o godot.zip
+          python3 -c "import zipfile; zipfile.ZipFile('godot.zip').extractall('g')"
+          chmod +x g/Godot_v4.3-stable_linux.x86_64
+          python3 -m u2g.validator out g/Godot_v4.3-stable_linux.x86_64 validation.json || true
+          cat validation.json | head -n 30
+      - name: Upload hasil
+        uses: actions/upload-artifact@v4
+        with:
+          name: godot-project
+          path: out
+          retention-days: 7
