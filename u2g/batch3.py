@@ -23,6 +23,9 @@ def _guid_of(src_root, rel_path):
 
 def _build_maps(manifest, src_root, out_root):
     mesh_map, mat_map, tex_map = {}, {}, {}
+
+    def _res(p):
+        return "res://" + p.replace(os.sep, "/")
     for f in manifest.get("files", []):
         p = f["path"]
         if p.endswith(".asset") and f["category"] == "data":
@@ -30,20 +33,20 @@ def _build_maps(manifest, src_root, out_root):
             if os.path.isfile(obj):
                 g = _guid_of(src_root, p)
                 if g:
-                    mesh_map[g] = os.path.join("models", safe_stem(p[:-6]) + ".obj")
+                    mesh_map[g] = _res(os.path.join("models", safe_stem(p[:-6]) + ".obj"))
         elif f["category"] == "material":
             base = p[:-4] if p.endswith(".mat") else p
             tres = os.path.join(out_root, "materials", safe_stem(base) + ".tres")
             if os.path.isfile(tres):
                 g = _guid_of(src_root, p)
                 if g:
-                    mat_map[g] = os.path.join("materials", safe_stem(base) + ".tres")
+                    mat_map[g] = _res(os.path.join("materials", safe_stem(base) + ".tres"))
         elif f["category"] == "texture":
             dst = os.path.join(out_root, "texture", p)
             if os.path.isfile(dst):
                 g = _guid_of(src_root, p)
                 if g:
-                    tex_map[g] = os.path.join("texture", p)
+                    tex_map[g] = _res(os.path.join("texture", p))
     return mesh_map, mat_map, tex_map
 
 

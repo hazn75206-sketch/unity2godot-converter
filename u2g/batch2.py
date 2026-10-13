@@ -24,7 +24,7 @@ def _tex_guid_map(manifest, src_root, dst_root):
         meta = os.path.join(src_root, f["path"] + ".meta")
         g = parse_meta_guid(meta) if os.path.isfile(meta) else None
         if g:
-            m[g.lower()] = os.path.join("texture", f["path"])
+            m[g.lower()] = "res://" + os.path.join("texture", f["path"]).replace(os.sep, "/")
     return m
 
 
