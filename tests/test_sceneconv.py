@@ -50,7 +50,7 @@ def test_build_tscn():
         {"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb": "res://materials/kotak.tres"},
         {})
     assert stats["nodes"] == 1 and stats["mesh"] == 1
-    assert '[node name="Kotak" type="MeshInstance3D" parent="."]' in text
+    assert '[node name="Kotak" type="MeshInstance3D"]' in text
     assert "transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1, 2, 3)" in text
     assert "res://models/kotak.obj" in text
     assert "res://materials/kotak.tres" in text
@@ -160,7 +160,7 @@ def test_ui_canvas_label():
     text, warnings, stats = build_tscn(gos, comps, {}, {}, {})
     assert stats.get("canvas") == 1
     assert stats.get("ui") == 1
-    assert '[node name="Kanvas" type="CanvasLayer" parent="."]' in text
+    assert '[node name="Kanvas" type="CanvasLayer"]' in text
     assert '[node name="Judul" type="Label" parent="Kanvas"]' in text
     assert "text = " in text and "Halo Dunia" in text
     assert "anchor_left = 0.5000" in text
@@ -172,3 +172,12 @@ def test_ui_canvas_label():
                           "size": (100, 50), "pivot": (0.5, 0.5)})
     assert cp["anchor_top"] == 0.0 and cp["anchor_bottom"] == 1.0
     assert cp["offset_left"] == -50.0 and cp["offset_right"] == 50.0
+
+
+def test_root_tanpa_parent():
+    from u2g.sceneconv import parse_prefab, build_tscn
+    from tests.test_sceneconv import PREFAB
+    gos, comps = parse_prefab(PREFAB)
+    text, _, _ = build_tscn(gos, comps, {}, {}, {})
+    first = [l for l in text.splitlines() if l.startswith("[node ")][0]
+    assert "parent=" not in first

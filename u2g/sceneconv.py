@@ -343,7 +343,11 @@ def build_tscn(gos, comps, mesh_guid_to_obj, mat_guid_to_tres, tex_guid_to_path)
         path = name if parent == "." else parent + "/" + name
         node_paths[fid] = path
         stats["nodes"] += 1
-        body_lines.append('[node name="%s" type="%s" parent="%s"]' % (name, ntype, parent))
+        if parent == ".":
+            # root scene TIDAK boleh punya atribut parent (Godot menolak)
+            body_lines.append('[node name="%s" type="%s"]' % (name, ntype))
+        else:
+            body_lines.append('[node name="%s" type="%s" parent="%s"]' % (name, ntype, parent))
         if ntype == "CanvasLayer":
             body_lines.append("layer = 1")
         elif ntype in ("Control", "TextureRect", "Label", "Button"):
