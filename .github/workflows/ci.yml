@@ -15,4 +15,6 @@ jobs:
         with:
           python-version: "3.12"
       - name: pytest
-        run: python3 -m pytest tests/ -q
+        run: |
+          pip install -q pytest
+          python3 -m pytest tests/ -q
