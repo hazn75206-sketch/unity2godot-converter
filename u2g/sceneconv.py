@@ -108,8 +108,10 @@ def parse_prefab(text):
         t = None
         for cfid in go["components"]:
             c = comps.get(cfid)
-            if c and c["class"] == 4:
+            if c and c["class"] in (4, 224):
                 t = c["body"]
+                go["is_rect"] = (c["class"] == 224)
+                go["rect_body"] = t
                 break
         if t:
             go["pos"] = _vec3(t, "m_LocalPosition")
@@ -124,6 +126,71 @@ def parse_prefab(text):
     return gos, comps
 
 
+def _rect_props(body):
+    """Ambil data RectTransform. Kembalikan dict, None bila bukan rect."""
+    if "m_AnchorMin" not in body:
+        return None
+    def _xy(key):
+        m = re.search(r"%s:\s*\{x:\s*([-+0-9.eE]+),\s*y:\s*([-+0-9.eE]+)\}" % key, body)
+        return (float(m.group(1)), float(m.group(2))) if m else (0.5, 0.5)
+    return {"amin": _xy("m_AnchorMin"), "amax": _xy("m_AnchorMax"),
+            "apos": _xy("m_AnchoredPosition"),
+            "size": _xy("m_SizeDelta"), "pivot": _xy("m_Pivot")}
+
+
+def rect_to_control(rect):
+    """RectTransform Unity -> props Control Godot. Kembalikan dict anchor/offset."""
+    (al, ab) = rect["amin"]
+    (ar, at) = rect["amax"]
+    (apx, apy) = rect["apos"]
+    (sw, sh) = rect["size"]
+    (pvx, pvy) = rect["pivot"]
+    return {
+        "anchor_left": al, "anchor_top": 1.0 - at,
+        "anchor_right": ar, "anchor_bottom": 1.0 - ab,
+        "offset_left": apx - pvx * sw,
+        "offset_top": -(apy + (1.0 - pvy) * sh),
+        "offset_right": apx + (1.0 - pvx) * sw,
+        "offset_bottom": -(apy - pvy * sh),
+        "pivot_x": pvx * sw, "pivot_y": (1.0 - pvy) * sh,
+    }
+
+
+def detect_ui_mb(body):
+    """Deteksi komponen UI Unity dari properti MonoBehaviour.
+    Kembalikan (jenis, info) atau (None, {}). Jenis: image/text/button/rawimage.
+    Urutan penting: button dulu (biasanya sekalian bawa Image)."""
+    if re.search(r"m_OnClick:", body):
+        return "button", {}
+    if re.search(r"m_Sprite:", body):
+        g = _guid_ref(body, "m_Sprite")
+        col = re.search(r"m_Color:\s*\{r:\s*([-+0-9.eE]+),\s*g:\s*([-+0-9.eE]+),\s*b:\s*([-+0-9.eE]+),\s*a:\s*([-+0-9.eE]+)\}", body)
+        return "image", {"guid": g, "color": tuple(float(col.group(i)) for i in range(1, 5)) if col else (1, 1, 1, 1)}
+    if re.search(r"m_Texture:", body) and "m_Sprite:" not in body:
+        return "rawimage", {"guid": _guid_ref(body, "m_Texture")}
+    tm = re.search(r"m_Text:\s*(.*)", body) or re.search(r"m_text:\s*(.*)", body)
+    if tm:
+        size = re.search(r"m_FontSize:\s*(\d+)", body)
+        col = re.search(r"m_Color:\s*\{r:\s*([-+0-9.eE]+),\s*g:\s*([-+0-9.eE]+),\s*b:\s*([-+0-9.eE]+),\s*a:\s*([-+0-9.eE]+)\}", body)
+        align = re.search(r"m_Alignment:\s*(\d+)", body)
+        return "text", {"text": tm.group(1).strip(),
+                        "size": int(size.group(1)) if size else 14,
+                        "color": tuple(float(col.group(i)) for i in range(1, 5)) if col else (0, 0, 0, 1),
+                        "align": int(align.group(1)) % 3 if align else 1}
+    for key, label in (("m_HandleRect", "Slider"), ("m_Graphic", "Toggle"),
+                       ("m_TextComponent", "InputField"), ("m_Content", "ScrollRect")):
+        if re.search(re.escape(key) + r":", body):
+            return "manual", {"label": label}
+    return None, {}
+    if isinstance(classes, int):
+        classes = (classes,)
+    for cfid in go["components"]:
+        c = comps.get(cfid)
+        if c and c["class"] in classes:
+            return c["body"]
+    return None
+
+
 def _comp_of(go, comps, classes):
     if isinstance(classes, int):
         classes = (classes,)
@@ -132,6 +199,38 @@ def _comp_of(go, comps, classes):
         if c and c["class"] in classes:
             return c["body"]
     return None
+
+
+def _emit_ui_widget(body_lines, ext_id, ntype, ui_kind, ui_info, tex_guid_to_path, name, warnings):
+    if ntype in ("TextureRect",) or ui_kind in ("image", "rawimage"):
+        g = (ui_info.get("guid") or "").lower()
+        tp = tex_guid_to_path.get(g) if g else None
+        if tp:
+            body_lines.append('texture = ExtResource("%s")' % ext_id("Texture2D", tp))
+        elif g == "0000000000000000f000000000000000" or (g and g.startswith("0000000000000000")):
+            warnings.append("UI %s pakai sprite bawaan Unity (tak terbawa): %s" % (name, ntype))
+        elif g:
+            warnings.append("tekstur UI guid %s tak ketemu (%s)" % (g, name))
+        body_lines.append("expand_mode = 1")
+        body_lines.append("stretch_mode = 5")
+        col = ui_info.get("color", (1, 1, 1, 1))
+        if col[:3] != (1, 1, 1):
+            body_lines.append("modulate = Color(%.3f, %.3f, %.3f, %.3f)" % col)
+    elif ntype == "Label" or ui_kind == "text":
+        body_lines.append("text = %s" % _gd_str(ui_info.get("text", "")))
+        body_lines.append("horizontal_alignment = %d" % ui_info.get("align", 1))
+        body_lines.append("theme_override_font_sizes/font_size = %d" % ui_info.get("size", 14))
+        col = ui_info.get("color", (0, 0, 0, 1))
+        body_lines.append("theme_override_colors/font_color = Color(%.3f, %.3f, %.3f, %.3f)" % col)
+    elif ntype == "Button" or ui_kind == "button":
+        body_lines.append('text = ""')
+        warnings.append("Button %s: isi teks + hubungkan pressed() manual" % name)
+    if ui_kind == "manual":
+        warnings.append("UI %s (%s): migrasikan manual" % (name, ui_info.get("label", "?")))
+
+
+def _gd_str(s):
+    return '"%s"' % s.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
 
 
 def build_tscn(gos, comps, mesh_guid_to_obj, mat_guid_to_tres, tex_guid_to_path):
@@ -174,6 +273,12 @@ def build_tscn(gos, comps, mesh_guid_to_obj, mat_guid_to_tres, tex_guid_to_path)
                 order.append(cur)
                 stack.extend(reversed(children.get(cur, [])))
 
+    # tandai subtree di bawah Canvas (untuk cabang UI)
+    for fid in order:
+        go = gos[fid]
+        fg = go.get("father_go")
+        go["in_canvas"] = bool(_comp_of(go, comps, 223)) or (gos[fg].get("in_canvas") if fg in gos else False)
+
     node_paths = {}
     used_names = {}
     body_lines = []
@@ -186,6 +291,18 @@ def build_tscn(gos, comps, mesh_guid_to_obj, mat_guid_to_tres, tex_guid_to_path)
         used_names[key] = n + 1
         if n:
             name = "%s@%d" % (name, n + 1)
+        is_ui = bool(go.get("in_canvas"))
+        canvas_body = _comp_of(go, comps, 223)
+        rect = _rect_props(go["rect_body"]) if go.get("is_rect") else None
+        ui_kind, ui_info = (None, {})
+        if is_ui and not canvas_body:
+            for cfid in go["components"]:
+                c = comps.get(cfid)
+                if c and c["class"] == 114:
+                    k, info = detect_ui_mb(c["body"])
+                    if k:
+                        ui_kind, ui_info = k, info
+                        break
         mesh_body = _comp_of(go, comps, 33)
         mesh_guid = _guid_ref(mesh_body, "m_Mesh") if mesh_body else None
         skin_body = _comp_of(go, comps, 137)
@@ -196,7 +313,14 @@ def build_tscn(gos, comps, mesh_guid_to_obj, mat_guid_to_tres, tex_guid_to_path)
         obj_path = mesh_guid_to_obj.get(mesh_guid) if mesh_guid else None
         camb = _comp_of(go, comps, 20)
         lightb = _comp_of(go, comps, 108)
-        if obj_path:
+        if canvas_body:
+            ntype = "CanvasLayer"
+            stats["canvas"] = stats.get("canvas", 0) + 1
+        elif is_ui and rect is not None:
+            ntype = {"image": "TextureRect", "rawimage": "TextureRect",
+                     "text": "Label", "button": "Button"}.get(ui_kind, "Control")
+            stats["ui"] = stats.get("ui", 0) + 1
+        elif obj_path:
             ntype = "MeshInstance3D"
             stats["mesh"] += 1
         elif camb:
@@ -214,6 +338,29 @@ def build_tscn(gos, comps, mesh_guid_to_obj, mat_guid_to_tres, tex_guid_to_path)
         node_paths[fid] = path
         stats["nodes"] += 1
         body_lines.append('[node name="%s" type="%s" parent="%s"]' % (name, ntype, parent))
+        if ntype == "CanvasLayer":
+            body_lines.append("layer = 1")
+        elif ntype in ("Control", "TextureRect", "Label", "Button"):
+            cp = rect_to_control(rect)
+            for k in ("anchor_left", "anchor_top", "anchor_right", "anchor_bottom",
+                      "offset_left", "offset_top", "offset_right", "offset_bottom"):
+                v = cp[k]
+                body_lines.append("%s = %.4f" % (k, v))
+            body_lines.append("pivot_offset = Vector2(%.2f, %.2f)" % (cp["pivot_x"], cp["pivot_y"]))
+            qx, qy, qz, qw = go["quat"]
+            if abs(qx) + abs(qy) < 1e-6:
+                import math as _m
+                ang = -2.0 * _m.atan2(qz, qw)
+                if abs(ang) > 1e-4:
+                    body_lines.append("rotation = %.5f" % ang)
+            else:
+                warnings.append("rotasi 3D pada UI %s disederhanakan" % name)
+            if not go["active"]:
+                body_lines.append("visible = false")
+            _emit_ui_widget(body_lines, ext_id, ntype, ui_kind, ui_info, tex_guid_to_path, name, warnings)
+            stats["nodes"] += 1
+            body_lines.append("")
+            continue
         body_lines.append("transform = Transform3D(%s)" % ", ".join(
             ("%.5f" % v).rstrip("0").rstrip(".") if abs(v) >= 0.000005 else "0" for v in tr))
         if not go["active"]:

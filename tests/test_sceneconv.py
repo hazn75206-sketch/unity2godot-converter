@@ -99,3 +99,76 @@ def test_missing_refs_warn():
     _, warnings, _ = build_tscn(gos, comps, {}, {}, {})
     assert any("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" in w for w in warnings)
     assert any("material dilewati" in w for w in warnings)
+
+
+UI_PREFAB = """%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &10
+GameObject:
+  m_Name: Kanvas
+  m_IsActive: 1
+  m_Component:
+  - component: {fileID: 20}
+  - component: {fileID: 30}
+--- !u!4 &20
+Transform:
+  m_GameObject: {fileID: 10}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_Children:
+  - {fileID: 31}
+  m_Father: {fileID: 0}
+--- !u!223 &30
+Canvas:
+  m_GameObject: {fileID: 10}
+  m_RenderMode: 0
+--- !u!1 &11
+GameObject:
+  m_Name: Judul
+  m_IsActive: 1
+  m_Component:
+  - component: {fileID: 21}
+  - component: {fileID: 41}
+--- !u!224 &21
+RectTransform:
+  m_GameObject: {fileID: 11}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_Children: []
+  m_Father: {fileID: 20}
+  m_AnchorMin: {x: 0.5, y: 0.5}
+  m_AnchorMax: {x: 0.5, y: 0.5}
+  m_AnchoredPosition: {x: 0, y: 100}
+  m_SizeDelta: {x: 400, y: 60}
+  m_Pivot: {x: 0.5, y: 0.5}
+--- !u!114 &41
+MonoBehaviour:
+  m_GameObject: {fileID: 11}
+  m_Text: Halo Dunia
+  m_FontSize: 32
+  m_Color: {r: 1, g: 1, b: 1, a: 1}
+  m_Alignment: 4
+"""
+
+
+def test_ui_canvas_label():
+    from u2g.sceneconv import rect_to_control
+    gos, comps = parse_prefab(UI_PREFAB)
+    assert gos["11"].get("is_rect") is True
+    text, warnings, stats = build_tscn(gos, comps, {}, {}, {})
+    assert stats.get("canvas") == 1
+    assert stats.get("ui") == 1
+    assert '[node name="Kanvas" type="CanvasLayer" parent="."]' in text
+    assert '[node name="Judul" type="Label" parent="Kanvas"]' in text
+    assert "text = " in text and "Halo Dunia" in text
+    assert "anchor_left = 0.5000" in text
+    assert "anchor_top = 0.5000" in text
+    # offset_top = -(100 + 0.5*60) = -130 ; offset_bottom = -(100 - 30) = -70
+    assert "offset_top = -130.0000" in text
+    assert "offset_bottom = -70.0000" in text
+    cp = rect_to_control({"amin": (0, 0), "amax": (1, 1), "apos": (0, 0),
+                          "size": (100, 50), "pivot": (0.5, 0.5)})
+    assert cp["anchor_top"] == 0.0 and cp["anchor_bottom"] == 1.0
+    assert cp["offset_left"] == -50.0 and cp["offset_right"] == 50.0
