@@ -55,7 +55,7 @@ def test_to_obj_valid(tmp_path):
     for l in lines:
         if l.startswith("f "):
             for v in l.split()[1:]:
-                assert 1 <= int(v) <= 3
+                assert 1 <= int(v.split("/")[0]) <= 3
 
 
 def test_parse_bukan_mesh(tmp_path):
