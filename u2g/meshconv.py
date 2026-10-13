@@ -52,15 +52,34 @@ def parse_mesh(path):
     nv = int(m.group(1))
     chans = re.findall(
         r"-\s*stream:\s*(\d+)\s*offset:\s*(\d+)\s*format:\s*(\d+)\s*dimension:\s*(\d+)", t)
-    if not chans or any(int(c[0]) != 0 for c in chans):
-        return None, "stream != 0"
-    chans = [(int(o), int(f), int(d)) for _, o, f, d in chans]
-    if any(f not in FMT_SIZE for _, f, _ in chans):
+    if not chans:
+        return None, "tanpa channel vertex"
+    if any(int(f) not in FMT_SIZE for _, _, f, _ in chans):
         return None, "format channel tak dikenal"
+    # kelompokkan per stream (blob = stream0 lalu stream1, ...)
+    streams = {}
+    for sem, (s, o, f, d) in enumerate([(int(s), int(o), int(f), int(d)) for s, o, f, d in chans]):
+        streams.setdefault(s, {"stride": 0, "chans": []})
+        streams[s]["chans"].append((sem, o, f, d))
+        if d:
+            streams[s]["stride"] = max(streams[s]["stride"], o + FMT_SIZE[f] * d)
+    nstreams = max(streams) + 1
+    if any(s not in streams for s in range(nstreams)):
+        return None, "stream tak berurutan"
     dm = re.search(r"_typelessdata:\s*([0-9a-fA-F]+)", t)
-    if not dm:
+    blob = bytes.fromhex(dm.group(1)) if dm else b""
+    if not blob:
+        sm = re.search(r"m_StreamData:\s*\n\s*serializedVersion:\s*\d+\s*\n\s*offset:\s*(\d+)\s*\n\s*size:\s*(\d+)", t)
+        if sm and int(sm.group(2)) == 0:
+            return None, "stream data kosong (vertex tak ter-rip)"
         return None, "typelessdata kosong"
-    blob = bytes.fromhex(dm.group(1))
+    bases = {}
+    off = 0
+    for s in range(nstreams):
+        bases[s] = off
+        off += streams[s]["stride"] * nv
+    if len(blob) < off:
+        return None, "ukuran data tak cocok"
     ib = re.search(r"m_IndexBuffer:\s*([0-9a-fA-F]+)", t)
     idxfmt = re.search(r"m_IndexFormat:\s*(\d+)", t)
     is32 = bool(idxfmt and int(idxfmt.group(1)) == 1)
@@ -70,24 +89,37 @@ def parse_mesh(path):
            for i in range(len(iblob) // isz)]
     subs = re.findall(
         r"firstByte:\s*(\d+)\s*indexCount:\s*(\d+)\s*topology:\s*(\d+)\s*baseVertex:\s*(\d+)\s*firstVertex:\s*(\d+)", t)
-    stride = 0
-    for off, fmt, dim in chans:
-        if dim:
-            stride = max(stride, off + FMT_SIZE[fmt] * dim)
-    if stride <= 0 or len(blob) < stride * nv:
-        return None, "ukuran data tak cocok"
+    def chan(sem):
+        for s in range(nstreams):
+            for se, o, f, d in streams[s]["chans"]:
+                if se == sem and d:
+                    return (s, o, f, d)
+        return None
+
+    cpos, cnrm = chan(0), chan(1)
+    cuv = None
+    for sem in range(4, len(chans)):
+        c = chan(sem)
+        if c and c[3] >= 2:
+            cuv = c
+            break
     pos, nrm, uv = [], [], []
     for v in range(nv):
-        base = v * stride
-        p = _unpack_chan(blob, base + chans[0][0], chans[0][1], chans[0][2]) if chans[0][2] else [0, 0, 0]
-        pos.append((-p[0], p[1], p[2]) if len(p) >= 3 else (0, 0, 0))
-        if len(chans) > 1 and chans[1][2] >= 3:
-            n = _unpack_chan(blob, base + chans[1][0], chans[1][1], chans[1][2])
+        if cpos:
+            s, o, f, d = cpos
+            p = _unpack_chan(blob, bases[s] + v * streams[s]["stride"] + o, f, d)
+            pos.append((-p[0], p[1], p[2]) if len(p) >= 3 else (0, 0, 0))
+        else:
+            pos.append((0, 0, 0))
+        if cnrm and cnrm[3] >= 3:
+            s, o, f, d = cnrm
+            n = _unpack_chan(blob, bases[s] + v * streams[s]["stride"] + o, f, d)
             nrm.append((-n[0], n[1], n[2]))
         else:
             nrm.append(None)
-        if len(chans) > 4 and chans[4][2] >= 2:
-            u = _unpack_chan(blob, base + chans[4][0], chans[4][1], chans[4][2])
+        if cuv:
+            s, o, f, d = cuv
+            u = _unpack_chan(blob, bases[s] + v * streams[s]["stride"] + o, f, d)
             uv.append((u[0], u[1]))
         else:
             uv.append(None)
