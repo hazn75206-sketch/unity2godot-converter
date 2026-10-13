@@ -313,6 +313,9 @@ def build_tscn(gos, comps, mesh_guid_to_obj, mat_guid_to_tres, tex_guid_to_path)
         obj_path = mesh_guid_to_obj.get(mesh_guid) if mesh_guid else None
         camb = _comp_of(go, comps, 20)
         lightb = _comp_of(go, comps, 108)
+        sprb = _comp_of(go, comps, 212)
+        spr_guid = _guid_ref(sprb, "m_Sprite") if sprb else None
+        spr_path = tex_guid_to_path.get(spr_guid) if spr_guid else None
         if canvas_body:
             ntype = "CanvasLayer"
             stats["canvas"] = stats.get("canvas", 0) + 1
@@ -323,6 +326,9 @@ def build_tscn(gos, comps, mesh_guid_to_obj, mat_guid_to_tres, tex_guid_to_path)
         elif obj_path:
             ntype = "MeshInstance3D"
             stats["mesh"] += 1
+        elif spr_path and not is_ui:
+            ntype = "Sprite3D"
+            stats["sprite"] = stats.get("sprite", 0) + 1
         elif camb:
             ntype = "Camera3D"
         elif lightb:
@@ -413,9 +419,18 @@ def build_tscn(gos, comps, mesh_guid_to_obj, mat_guid_to_tres, tex_guid_to_path)
         # komponen tak didukung
         for cfid in go["components"]:
             c = comps.get(cfid)
-            if c and c["class"] not in (1, 4, 20, 23, 33, 54, 64, 65, 82, 108, 114, 135, 136, 137):
+            if c and c["class"] not in (1, 4, 20, 23, 33, 54, 64, 65, 82, 108, 114, 135, 136, 137,
+                                        212, 222, 223, 224):
                 stats["unsupported"][class_name(c["class"])] = stats["unsupported"].get(
                     class_name(c["class"]), 0) + 1
+        sprb = _comp_of(go, comps, 212)
+        if sprb and ntype not in ("Sprite3D", "TextureRect", "Control", "Label", "Button", "CanvasLayer"):
+            sg = _guid_ref(sprb, "m_Sprite")
+            st = tex_guid_to_path.get(sg) if sg else None
+            if st:
+                body_lines.append('texture = ExtResource("%s")' % ext_id("Texture2D", st))
+            elif sg:
+                warnings.append("sprite guid %s tak ketemu (%s)" % (sg, name))
         if _comp_of(go, comps, 54):
             warnings.append("Rigidbody %s: setel fisika manual" % name)
         body_lines.append("")
