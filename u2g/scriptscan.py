@@ -31,9 +31,10 @@ API_FLAGS = {
     "Raycast": "Raycast (gunakan raycast Godot)",
 }
 
-EVENT_TO_GD = {"Awake": "_ready", "Start": "_ready", "Update": "_process",
-               "FixedUpdate": "_physics_process", "LateUpdate": "_process",
-               "OnEnable": "_enter_tree", "OnDisable": "_exit_tree"}
+EVENT_TO_GD = {"Awake": "_ready()", "Start": "_ready()",
+               "Update": "_process(delta)", "FixedUpdate": "_physics_process(delta)",
+               "LateUpdate": "_process(delta)",
+               "OnEnable": "_enter_tree()", "OnDisable": "_exit_tree()"}
 
 
 def analyze_cs(path):
@@ -62,7 +63,7 @@ def template_gd(analysis, source_name):
     for e in analysis.get("events", []):
         if e in EVENT_TO_GD and EVENT_TO_GD[e] not in mapped:
             mapped.append(EVENT_TO_GD[e])
-            L.append("func %s():\n\tpass # TODO: port dari %s()\n\n" % (EVENT_TO_GD[e], e))
+            L.append("func %s:\n\tpass # TODO: port dari %s()\n\n" % (EVENT_TO_GD[e], e))
     for f in analysis.get("flags", []):
         L.append("# TODO: %s\n" % f)
     return "".join(L)

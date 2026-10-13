@@ -35,7 +35,7 @@ def test_template_jujur(tmp_path):
     p.write_text(CS)
     a = analyze_cs(str(p))
     t = template_gd(a, "Lompat.cs")
-    assert "TEMPLATE" in t and "func _process():" in t and "func _ready():" in t
+    assert "TEMPLATE" in t and "func _process(delta):" in t and "func _ready():" in t
     assert "TODO" in t
 
 
