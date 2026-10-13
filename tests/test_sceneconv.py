@@ -61,6 +61,24 @@ def test_transform_mirror():
     assert tr[9:] == (-1.0, 0.0, 0.0)
 
 
+def test_ordering_cepat():
+    import time
+    gos, comps = {}, {}
+    for i in range(3000):
+        fid = str(1000 + i)
+        cfid = str(2000 + i)
+        gos[fid] = {"name": "N%d" % i, "active": True, "components": [cfid],
+                    "pos": (0, 0, 0), "quat": (0, 0, 0, 1), "scale": (1, 1, 1),
+                    "father": None}
+        comps[cfid] = {"class": 4, "body": ""}
+    # 3000 root: pastikan ordering tetap O(n)
+    t0 = time.time()
+    text, _, stats = build_tscn(gos, comps, {}, {}, {})
+    dt = time.time() - t0
+    assert stats["nodes"] == 3000
+    assert dt < 10, "terlalu lambat: %.1fs" % dt
+
+
 def test_missing_refs_warn():
     gos, comps = parse_prefab(PREFAB)
     _, warnings, _ = build_tscn(gos, comps, {}, {}, {})

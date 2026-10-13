@@ -136,9 +136,14 @@ def build_tscn(gos, comps, mesh_guid_to_obj, mat_guid_to_tres, tex_guid_to_path)
     for fid, go in gos.items():
         f = go.get("father")
         go["father_go"] = comp_to_go.get(f) if f else None
+    children = {}
+    for k, g in gos.items():
+        fg = g.get("father_go")
+        if fg and fg in gos:
+            children.setdefault(fg, []).append(k)
     for fid in gos:
         if not gos[fid].get("father_go"):
-            # DFS dari root
+            # DFS iteratif, total O(n)
             stack = [fid]
             while stack:
                 cur = stack.pop()
@@ -146,8 +151,7 @@ def build_tscn(gos, comps, mesh_guid_to_obj, mat_guid_to_tres, tex_guid_to_path)
                     continue
                 seen.add(cur)
                 order.append(cur)
-                kids = [k for k, g in gos.items() if g.get("father_go") == cur]
-                stack.extend(reversed(kids))
+                stack.extend(reversed(children.get(cur, [])))
 
     node_paths = {}
     used_names = {}

@@ -57,7 +57,9 @@ def run_batch3(src_root, manifest_path, out_root):
                "warnings": 0, "unsupported": {}, "failed": {}}
     targets = [f for f in manifest.get("files", [])
                if f["category"] in ("scene", "prefab")]
-    for f in targets:
+    for n, f in enumerate(targets):
+        if n % 25 == 0:
+            print("scene %d/%d ..." % (n, len(targets)), flush=True)
         src = os.path.join(src_root, f["path"])
         try:
             with open(src, encoding="utf-8", errors="replace") as fh:
