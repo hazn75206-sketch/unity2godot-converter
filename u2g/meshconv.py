@@ -92,11 +92,18 @@ def parse_mesh(path):
     def chan(sem):
         for s in range(nstreams):
             for se, o, f, d in streams[s]["chans"]:
-                if se == sem and d:
+                # blok packed/kompresi (dim > 4) tidak bisa dibaca langsung
+                if se == sem and d and not (f == 1 and d > 4):
                     return (s, o, f, d)
         return None
 
     cpos, cnrm = chan(0), chan(1)
+    if cpos is None:
+        # posisi satu-satunya data wajib; kalau terkompresi, file dilewati jujur
+        raw0 = [(s, o, f, d) for s in range(nstreams) for se, o, f, d in streams[s]["chans"] if se == 0 and d]
+        if raw0:
+            return None, "posisi terkompresi (tak terbaca)"
+        return None, "tanpa channel posisi"
     cuv = None
     for sem in range(4, len(chans)):
         c = chan(sem)
@@ -129,8 +136,45 @@ def parse_mesh(path):
     }, None
 
 
+def _smooth_normals(mesh):
+    """Normal rata-rata per vertex (fallback bila mesh tak bawa normal)."""
+    import math
+    acc = [[0.0, 0.0, 0.0] for _ in mesh["pos"]]
+    idx = mesh["idx"]
+    subs = mesh["subs"] or [(0, len(idx), 0, 0)]
+    for (start, count, topo, firstv) in subs:
+        if topo != 0:
+            continue
+        seg = idx[start:start + count]
+        cand = [v + firstv for v in seg]
+        use_off = firstv if (cand and max(cand) < mesh["nv"]) else 0
+        for i in range(0, len(seg) - 2, 3):
+            # urutan dibalik seperti di to_obj (cermin X): normal menghadap keluar
+            tri = [seg[i + k] + use_off for k in (0, 2, 1)]
+            if any(v < 0 or v >= mesh["nv"] for v in tri):
+                continue
+            ax, ay, az = mesh["pos"][tri[0]]
+            bx, by, bz = mesh["pos"][tri[1]]
+            cx, cy, cz = mesh["pos"][tri[2]]
+            ux, uy, uz = bx - ax, by - ay, bz - az
+            vx, vy, vz = cx - ax, cy - ay, cz - az
+            nx, ny, nz = uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx
+            for v in tri:
+                acc[v][0] += nx
+                acc[v][1] += ny
+                acc[v][2] += nz
+    out = []
+    for n in acc:
+        l = math.sqrt(n[0] ** 2 + n[1] ** 2 + n[2] ** 2)
+        out.append((n[0] / l, n[1] / l, n[2] / l) if l > 1e-12 else (0.0, 1.0, 0.0))
+    return out
+
+
 def to_obj(mesh, name):
-    """Mesh dict -> teks OBJ. Face invalid dilewati dan dihitung."""
+    """Mesh dict -> (teks OBJ, face_dilewati). Normal dihitung bila tak ada."""
+    if not any(n is not None for n in mesh["nrm"]):
+        mesh["nrm"] = _smooth_normals(mesh)
+        mesh["nrm_computed"] = True
     L = ["# %s (Unity->Godot)\n" % name]
     for p in mesh["pos"]:
         L.append("v %.6f %.6f %.6f\n" % p)
